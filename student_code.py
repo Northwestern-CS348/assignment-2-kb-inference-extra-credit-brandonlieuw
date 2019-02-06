@@ -116,7 +116,38 @@ class KnowledgeBase(object):
             print("Invalid ask:", fact.statement)
             return []
 
-    def kb_retract(self, fact_or_rule):
+    #helper to remove facts/rules
+    def kb_remove(self, fr):
+
+        if not fr.asserted and not fr.supported_by:
+            if isinstance(fr, Fact):
+                for x in self.facts:
+                    if x==fr:
+                        self.facts.remove(x)
+            else:
+                for x in self.rules:
+                    if x==fr:
+                        self.rules.remove(x)
+
+
+        for r in fr.supports_rules:
+            for pair in r.supported_by:
+                if (not pair[0].asserted and not pair[0].supported_by) or (not pair[1].asserted and not pair[1].supported_by):
+                    r.supported_by.remove(pair)
+                    self.kb_remove(pair[0])
+                    self.kb_remove(pair[1])
+            self.kb_remove(r)
+
+        for f in fr.supports_facts:
+            for pair in f.supported_by:
+                if (not pair[0].asserted and not pair[0].supported_by) or (not pair[1].asserted and not pair[1].supported_by):
+                    f.supported_by.remove(pair)
+                    self.kb_remove(pair[0])
+                    self.kb_remove(pair[1])
+            self.kb_remove(f)
+
+
+    def kb_retract(self, fact):
         """Retract a fact from the KB
 
         Args:
@@ -125,12 +156,22 @@ class KnowledgeBase(object):
         Returns:
             None
         """
-        printv("Retracting {!r}", 0, verbose, [fact_or_rule])
+        printv("Retracting {!r}", 0, verbose, [fact])
         ####################################################
-        # Implementation goes here
-        # Not required for the extra credit assignment
+        # Student code goes here
+        if isinstance(fact, Fact):
+            factInKB=None
+            for x in self.facts:
+                bindings=match(fact.statement, x.statement, None)
+                if isinstance(bindings, Bindings):
+                    factInKB = x
 
-    def kb_explain(self, fact_or_rule):
+            if isinstance(factInKB, Fact):
+                if factInKB.asserted:
+                    factInKB.asserted = False
+                    self.kb_remove(factInKB)
+
+    def kb_explain(self, fr):
         """
         Explain where the fact or rule comes from
 
@@ -142,6 +183,46 @@ class KnowledgeBase(object):
         """
         ####################################################
         # Student code goes here
+        if not isinstance(fr, Fact) and not isinstance(fr, Rule):
+            return False
+
+        frInKB = None
+        if isinstance(fr, Rule):
+            for x in self.rules:
+                if fr==x:
+                    frInKB = x
+            if not isinstance(frInKB, Rule):
+                return "Rule is not in the KB"
+
+        if isinstance(fr, Fact):
+            for x in self.facts:
+                if fr==x:
+                    frInKB = x
+            if not isinstance(frInKB, Fact):
+                return "Fact is not in the KB"
+        
+        return self.explain_helper(frInKB, 0)
+
+    def explain_helper(self, fr, depth):
+
+        s=""
+        if isinstance(fr, Fact):
+            s+="fact: "+fr.statement.__str__()
+        if isinstance(fr, Rule):
+            s+="rule: ("
+            for st in fr.lhs:
+                s+=st.__str__()+", "
+            s = s[:-2]+") -> "+fr.rhs.__str__()
+        if fr.asserted:
+            s+=" ASSERTED"
+        if fr.supported_by:
+            tabs="  "
+            for x in range(depth):
+                tabs+="    "
+            for pair in fr.supported_by:
+                s+="\n"+tabs+"SUPPORTED BY\n"
+                s+=tabs+"  "+self.explain_helper(pair[0], depth+1)+"\n"+tabs+"  "+self.explain_helper(pair[1], depth+1)
+        return s
 
 
 class InferenceEngine(object):
@@ -161,3 +242,20 @@ class InferenceEngine(object):
         ####################################################
         # Implementation goes here
         # Not required for the extra credit assignment
+        bindings = match(fact.statement, rule.lhs[0], None)
+        if isinstance(bindings, Bindings):
+            if len(rule.lhs)==1:
+                new_fact = Fact(instantiate(rule.rhs,bindings),[[fact, rule]])
+                rule.supports_facts.append(new_fact)
+                fact.supports_facts.append(new_fact)
+                kb.kb_add(new_fact)
+            else:
+                new_rule = Rule([[], instantiate(rule.rhs, bindings)], [[fact, rule]])
+                for x in range(1, len(rule.lhs)):
+                    new_rule.lhs.append(instantiate(rule.lhs[x], bindings))
+                rule.supports_rules.append(new_rule)
+                fact.supports_rules.append(new_rule)
+                kb.kb_add(new_rule)
+
+
+
